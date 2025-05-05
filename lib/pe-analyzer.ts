@@ -1,289 +1,225 @@
-// PE Analyzer logic adapted from the provided prototype
+"use client"
 
-// Minimum length for initial string extraction before filtering
-const MIN_STRING_LENGTH = 5
+import type React from "react"
 
-/**
- * Analyzes an executable file for potentially suspicious DLLs
- * @param file The executable file to analyze
- * @param setStatus Optional callback to update status during analysis
- * @returns Analysis result with potentially suspicious DLLs and summary
- */
-export async function analyzeExecutable(
-  file: File,
-  setStatus?: (status: { message: string; type: string }) => void,
-): Promise<{ potentially_suspicious_dlls: string[]; analysis_summary: string }> {
-  // Update status if callback provided
-  const updateStatus = (message: string, type: "info" | "loading" | "error" | "success") => {
-    if (setStatus) {
-      setStatus({ message, type })
-    }
-    console.log(`[PE Analyzer] ${type}: ${message}`)
-  }
+import { useState, useRef } from "react"
+import { Loader2, FileUp, AlertTriangle, Shield, FileCode } from "lucide-react"
 
-  return new Promise((resolve, reject) => {
-    updateStatus("Reading file...", "loading")
+// Import the analyzer logic from the prototype
+import { analyzeExecutable } from "@/lib/pe-analyzer"
 
-    const reader = new FileReader()
+interface AnalysisResult {
+  potentially_suspicious_dlls: string[]
+  analysis_summary: string
+}
 
-    reader.onload = async (event) => {
-      try {
-        updateStatus("Extracting and filtering strings...", "loading")
-        const arrayBuffer = event.target?.result as ArrayBuffer
-        if (!arrayBuffer) {
-          throw new Error("Failed to read file")
-        }
-
-        const allReadableStrings = extractStrings(arrayBuffer, MIN_STRING_LENGTH)
-
-        // Filter for DLL names
-        const dllNames = filterForDllNames(allReadableStrings)
-
-        if (dllNames.length === 0) {
-          updateStatus("No potential DLL names found in the file's strings.", "error")
-          throw new Error("Could not find any strings ending in '.dll' to analyze.")
-        }
-
-        updateStatus(`Found ${dllNames.length} potential DLL(s). Analyzing...`, "loading")
-        console.log("DLLs found:", dllNames)
-
-        // For demo purposes, we'll simulate an AI analysis with a mock response
-        // In a real implementation, this would call an AI service like in the prototype
-        const analysisResult = await simulateAIAnalysis(dllNames)
-
-        updateStatus("Analysis complete.", "success")
-        resolve(analysisResult)
-      } catch (error) {
-        console.error("Error during file processing or analysis:", error)
-        updateStatus(`Error: ${error instanceof Error ? error.message : "Unknown error"}`, "error")
-        reject(error)
-      }
-    }
-
-    reader.onerror = () => {
-      const errorMessage = "Error reading file"
-      updateStatus(errorMessage, "error")
-      reject(new Error(errorMessage))
-    }
-
-    reader.readAsArrayBuffer(file)
+export default function PeAnalyzer() {
+  const [file, setFile] = useState<File | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [status, setStatus] = useState<{ message: string; type: "info" | "loading" | "error" | "success" }>({
+    message: "Select an .exe or .dll file to begin analysis.",
+    type: "info",
   })
-}
+  const [result, setResult] = useState<AnalysisResult | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-/**
- * Extracts potentially readable printable strings from an ArrayBuffer
- * @param arrayBuffer The binary data from the file
- * @param minLength Minimum sequence length for a potential string before filtering
- * @returns An array of extracted strings that passed the readability filters
- */
-function extractStrings(arrayBuffer: ArrayBuffer, minLength = 5): string[] {
-  const uint8Array = new Uint8Array(arrayBuffer)
-  const strings: string[] = []
-  const decoder = new TextDecoder("utf-8", { fatal: false })
-  let sequenceStartIndex = -1
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0] || null
+    setFile(selectedFile)
+    setResult(null)
 
-  for (let i = 0; i < uint8Array.length; i++) {
-    const byte = uint8Array[i]
-    const isPrintable = (byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13
-
-    if (isPrintable && sequenceStartIndex === -1) {
-      sequenceStartIndex = i
-    } else if (!isPrintable && sequenceStartIndex !== -1) {
-      const length = i - sequenceStartIndex
-      if (length >= minLength) {
-        const stringSlice = uint8Array.slice(sequenceStartIndex, i)
-        const decodedString = decoder.decode(stringSlice)
-        if (isPotentiallyReadable(decodedString)) {
-          strings.push(decodedString)
-        }
+    if (selectedFile) {
+      // Validate file type
+      if (!selectedFile.name.endsWith(".exe") && !selectedFile.name.endsWith(".dll")) {
+        setStatus({
+          message: "Please select a valid .exe or .dll file.",
+          type: "error",
+        })
+        setFile(null)
+        if (fileInputRef.current) fileInputRef.current.value = ""
+        return
       }
-      sequenceStartIndex = -1
-    }
-  }
 
-  // Check for string at the end of the file
-  if (sequenceStartIndex !== -1) {
-    const length = uint8Array.length - sequenceStartIndex
-    if (length >= minLength) {
-      const stringSlice = uint8Array.slice(sequenceStartIndex, uint8Array.length)
-      const decodedString = decoder.decode(stringSlice)
-      if (isPotentiallyReadable(decodedString)) {
-        strings.push(decodedString)
-      }
-    }
-  }
-
-  console.log(`Found ${strings.length} potentially readable strings with initial min length ${minLength}`)
-  return strings
-}
-
-/**
- * Checks if a string is likely "readable" text rather than random printable bytes
- * @param str The candidate string
- * @returns True if the string seems readable, false otherwise
- */
-function isPotentiallyReadable(str: string): boolean {
-  const MIN_ALPHANUM_RATIO_LONG = 0.5
-  const LONG_STRING_THRESHOLD = 20
-  const MAX_CONSECUTIVE_CHAR_REPEAT = 10
-  const MAX_CONSECUTIVE_NON_ALPHANUM = 15
-
-  let alphaNumCount = 0
-  let consecutiveChar = ""
-  let consecutiveCharCount = 0
-  let consecutiveNonAlphaNumCount = 0
-  let maxConsecutiveCharFound = 0
-  let maxConsecutiveNonAlphaNumFound = 0
-  let hasLetter = false
-
-  for (let i = 0; i < str.length; i++) {
-    const char = str[i]
-    const isLetter = (char >= "a" && char <= "z") || (char >= "A" && char <= "Z")
-    const isNumber = char >= "0" && char <= "9"
-    const isAlphaNum = isLetter || isNumber
-
-    if (isLetter) hasLetter = true
-    if (isAlphaNum) alphaNumCount++
-
-    if (char === consecutiveChar) {
-      consecutiveCharCount++
+      setStatus({
+        message: `Selected file: ${selectedFile.name} (${(selectedFile.size / 1024 / 1024).toFixed(2)} MB)`,
+        type: "info",
+      })
     } else {
-      consecutiveChar = char
-      consecutiveCharCount = 1
-    }
-
-    maxConsecutiveCharFound = Math.max(maxConsecutiveCharFound, consecutiveCharCount)
-
-    if (!isAlphaNum) {
-      consecutiveNonAlphaNumCount++
-    } else {
-      consecutiveNonAlphaNumCount = 0
-    }
-
-    maxConsecutiveNonAlphaNumFound = Math.max(maxConsecutiveNonAlphaNumFound, consecutiveNonAlphaNumCount)
-  }
-
-  if (maxConsecutiveCharFound > MAX_CONSECUTIVE_CHAR_REPEAT) return false
-  if (maxConsecutiveNonAlphaNumFound > MAX_CONSECUTIVE_NON_ALPHANUM) return false
-
-  if (str.length >= LONG_STRING_THRESHOLD) {
-    const alphaNumRatio = alphaNumCount / str.length
-    if (alphaNumRatio < MIN_ALPHANUM_RATIO_LONG || !hasLetter) return false
-  }
-
-  return true
-}
-
-/**
- * Filters an array of strings, returning only those that end with ".dll" (case-insensitive)
- * @param stringsArray Array of strings extracted from the file
- * @returns An array of unique potential DLL filenames
- */
-function filterForDllNames(stringsArray: string[]): string[] {
-  const dllRegex = /\.dll$/i // Case-insensitive regex for ".dll" at the end of a string
-  const potentialDlls = new Set<string>() // Use a Set to store unique names automatically
-
-  for (const str of stringsArray) {
-    // Trim whitespace just in case
-    const trimmedStr = str.trim()
-    // Check minimum length (e.g., "a.dll") and if it matches the regex
-    if (trimmedStr.length > 4 && dllRegex.test(trimmedStr)) {
-      // Basic sanity check: does it contain invalid filename chars? (optional)
-      if (!/[<>:"/\\|?*]/.test(trimmedStr)) {
-        // Avoid illegal chars
-        potentialDlls.add(trimmedStr)
-      }
+      setStatus({
+        message: "Select an .exe or .dll file to begin analysis.",
+        type: "info",
+      })
     }
   }
 
-  // Convert the Set back to an Array
-  return Array.from(potentialDlls)
-}
-
-/**
- * Simulates an AI analysis of DLL names
- * In a real implementation, this would call an AI service
- * @param dllNames Array of DLL names to analyze
- * @returns Analysis result with potentially suspicious DLLs and summary
- */
-async function simulateAIAnalysis(
-  dllNames: string[],
-): Promise<{ potentially_suspicious_dlls: string[]; analysis_summary: string }> {
-  // Simulate processing time
-  await new Promise((resolve) => setTimeout(resolve, 1500))
-
-  // Common system DLLs that are generally not suspicious
-  const commonSystemDlls = new Set([
-    "kernel32.dll",
-    "user32.dll",
-    "gdi32.dll",
-    "ntdll.dll",
-    "shell32.dll",
-    "advapi32.dll",
-    "ole32.dll",
-    "msvcrt.dll",
-    "comctl32.dll",
-    "comdlg32.dll",
-    "ws2_32.dll",
-    "wininet.dll",
-    "oleaut32.dll",
-    "shlwapi.dll",
-    "rpcrt4.dll",
-  ])
-
-  // Potentially suspicious DLL patterns
-  const suspiciousPatterns = [
-    { pattern: /7z.*\.dll$/i, category: "compression" },
-    { pattern: /rar.*\.dll$/i, category: "compression" },
-    { pattern: /crypt.*\.dll$/i, category: "cryptography" },
-    { pattern: /inject.*\.dll$/i, category: "injection" },
-    { pattern: /hook.*\.dll$/i, category: "hooking" },
-    { pattern: /keylog.*\.dll$/i, category: "keylogging" },
-    { pattern: /screen.*\.dll$/i, category: "screen capture" },
-    { pattern: /net.*\.dll$/i, category: "networking" },
-    { pattern: /ssl.*\.dll$/i, category: "encryption" },
-    { pattern: /tor.*\.dll$/i, category: "anonymization" },
-  ]
-
-  // Filter for potentially suspicious DLLs
-  const suspiciousDlls: string[] = []
-  const categories = new Set<string>()
-
-  for (const dll of dllNames) {
-    // Skip common system DLLs
-    if (commonSystemDlls.has(dll.toLowerCase())) continue
-
-    // Check against suspicious patterns
-    for (const { pattern, category } of suspiciousPatterns) {
-      if (pattern.test(dll)) {
-        suspiciousDlls.push(dll)
-        categories.add(category)
-        break
-      }
+  const handleAnalyze = async () => {
+    if (!file) {
+      setStatus({
+        message: "Please select a file first.",
+        type: "error",
+      })
+      return
     }
 
-    // If not matched by patterns but looks unusual, add it
-    if (
-      !suspiciousDlls.includes(dll) &&
-      !commonSystemDlls.has(dll.toLowerCase()) &&
-      (dll.length > 15 || /[0-9]{3,}/.test(dll))
-    ) {
-      suspiciousDlls.push(dll)
+    try {
+      setIsAnalyzing(true)
+      setStatus({
+        message: "Analyzing file... This may take a moment.",
+        type: "loading",
+      })
+
+      // Call the analyzer function from the prototype
+      const analysisResult = await analyzeExecutable(file, setStatus)
+      setResult(analysisResult)
+
+      setStatus({
+        message: "Analysis complete.",
+        type: "success",
+      })
+    } catch (error) {
+      console.error("Analysis error:", error)
+      setStatus({
+        message: `Error during analysis: ${error instanceof Error ? error.message : "Unknown error"}`,
+        type: "error",
+      })
+    } finally {
+      setIsAnalyzing(false)
     }
   }
 
-  // Generate analysis summary based on findings
-  let analysisSummary = ""
-
-  if (suspiciousDlls.length === 0) {
-    analysisSummary = "No suspicious DLLs were identified. The executable appears to use standard system libraries."
-  } else {
-    const categoryList = Array.from(categories).join(", ")
-    analysisSummary = `The presence of ${suspiciousDlls.length} potentially suspicious DLLs suggests capabilities related to ${categoryList}, which could be indicative of malware attempting to hide or transmit data.`
+  const resetAnalysis = () => {
+    setFile(null)
+    setResult(null)
+    setStatus({
+      message: "Select an .exe or .dll file to begin analysis.",
+      type: "info",
+    })
+    if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
-  return {
-    potentially_suspicious_dlls: suspiciousDlls,
-    analysis_summary: analysisSummary,
-  }
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold text-blue-100">PE Analyzer</h2>
+        <div className="text-sm text-blue-300">Analyze executable files for potentially suspicious DLLs</div>
+      </div>
+
+      <div className="mb-6 glass-panel p-6 rounded-lg">
+        <h3 className="text-lg font-medium text-blue-100 mb-4">Upload Executable</h3>
+        <p className="text-sm text-blue-300 mb-4">
+          Select an .exe or .dll file. The analyzer will extract strings, identify potentially suspicious DLLs, and
+          provide a security analysis.
+        </p>
+
+        <div className="flex flex-col md:flex-row gap-4 mb-4">
+          <div className="flex-1">
+            <label
+              htmlFor="file-upload"
+              className="flex items-center justify-center w-full h-32 px-4 transition bg-blue-900/20 border-2 border-blue-800/30 border-dashed rounded-lg appearance-none cursor-pointer hover:border-blue-600/50 focus:outline-none"
+            >
+              <div className="flex flex-col items-center space-y-2">
+                <FileUp className="w-6 h-6 text-blue-400" />
+                <span className="font-medium text-blue-300">{file ? file.name : "Drop file or click to upload"}</span>
+                {file && <span className="text-xs text-blue-400">{(file.size / 1024 / 1024).toFixed(2)} MB</span>}
+              </div>
+              <input
+                id="file-upload"
+                type="file"
+                accept=".exe,.dll"
+                className="hidden"
+                onChange={handleFileChange}
+                ref={fileInputRef}
+              />
+            </label>
+          </div>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handleAnalyze}
+              disabled={!file || isAnalyzing}
+              className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+              {isAnalyzing ? "Analyzing..." : "Analyze File"}
+            </button>
+            <button
+              onClick={resetAnalysis}
+              disabled={isAnalyzing}
+              className="flex items-center justify-center gap-2 bg-blue-900/30 hover:bg-blue-800/50 text-blue-300 hover:text-blue-100 px-6 py-2 rounded border border-blue-800/30 transition-colors disabled:opacity-50"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <div
+          className={`status-message p-3 rounded text-sm ${
+            status.type === "loading"
+              ? "bg-blue-900/30 text-blue-300 border border-blue-800/50"
+              : status.type === "error"
+                ? "bg-red-900/20 text-red-300 border border-red-800/30"
+                : status.type === "success"
+                  ? "bg-green-900/20 text-green-300 border border-green-800/30"
+                  : "bg-blue-900/20 text-blue-300 border border-blue-800/30"
+          }`}
+        >
+          {status.type === "loading" && <Loader2 className="inline-block h-4 w-4 mr-2 animate-spin" />}
+          {status.type === "error" && <AlertTriangle className="inline-block h-4 w-4 mr-2" />}
+          {status.message}
+        </div>
+      </div>
+
+      {result && (
+        <div className="glass-panel p-6 rounded-lg mb-6 animate-fadeIn">
+          <h3 className="text-lg font-medium text-blue-100 mb-4 flex items-center">
+            <FileCode className="mr-2 h-5 w-5 text-blue-400" />
+            Analysis Results
+          </h3>
+
+          <div className="mb-6">
+            <h4 className="text-md font-medium text-blue-300 mb-2">Analysis Summary</h4>
+            <div className="bg-blue-900/20 p-4 rounded border border-blue-800/30 text-blue-100">
+              {result.analysis_summary}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-md font-medium text-blue-300 mb-2">
+              Potentially Suspicious DLLs{" "}
+              <span className="text-sm font-normal text-blue-400">
+                ({result.potentially_suspicious_dlls.length} found)
+              </span>
+            </h4>
+
+            {result.potentially_suspicious_dlls.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {result.potentially_suspicious_dlls.map((dll, index) => (
+                  <div key={index} className="bg-red-900/10 border border-red-800/30 rounded p-3 flex items-center">
+                    <AlertTriangle className="h-4 w-4 text-red-400 mr-2 flex-shrink-0" />
+                    <span className="text-red-200 font-mono text-sm truncate" title={dll}>
+                      {dll}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-green-900/10 border border-green-800/30 rounded p-4 text-green-300">
+                No suspicious DLLs were identified in this executable.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="text-sm text-blue-300">
+        <p className="mb-2">
+          <strong>Note:</strong> This analysis is based on static examination of the file's strings and does not execute
+          the binary. It may not detect all malicious indicators.
+        </p>
+        <p>
+          For comprehensive security analysis, consider using specialized tools like VirusTotal, Cuckoo Sandbox, or
+          professional malware analysis services.
+        </p>
+      </div>
+    </div>
+  )
 }
