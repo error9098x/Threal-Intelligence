@@ -1,4 +1,6 @@
-# SentryAgent
+# SentryAgent ![image](https://github.com/user-attachments/assets/f9d6aa7a-fa90-461d-ae5c-08237db51d52)
+
+![image](https://github.com/user-attachments/assets/a9258fb0-0b94-4b80-bc3f-3daeeb8a96bf)
 
 ## Docs : https://deepwiki.com/error9098x/Threal-Intelligence
 
