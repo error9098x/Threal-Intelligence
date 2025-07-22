@@ -4,14 +4,6 @@
 
 ## Docs : https://deepwiki.com/error9098x/Threal-Intelligence
 
-Title: error9098x/Threal-Intelligence | DeepWiki
-
-URL Source: https://deepwiki.com/error9098x/Threal-Intelligence
-
-Markdown Content:
-Overview
---------
-
 Relevant source files
 *   [app/api/cve/route.ts](https://github.com/error9098x/Threal-Intelligence/blob/a3d71fc5/app/api/cve/route.ts)
 *   [app/api/geoip/route.ts](https://github.com/error9098x/Threal-Intelligence/blob/a3d71fc5/app/api/geoip/route.ts)
