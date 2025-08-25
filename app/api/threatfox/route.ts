@@ -5,18 +5,18 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { minutes = 5, days } = body
 
-    // Calculate the query parameter based on days or minutes
-    let queryParam = ""
-    if (days) {
-      queryParam = `days=${days}`
-    } else {
-      queryParam = `minutes=${minutes}`
+    // Get API key from environment
+    const THREATFOX_API_KEY = process.env.THREATFOX_API_KEY?.trim()
+    
+    if (!THREATFOX_API_KEY) {
+      return NextResponse.json({ error: "THREATFOX_API_KEY is not configured" }, { status: 500 })
     }
 
     const response = await fetch(`https://threatfox-api.abuse.ch/api/v1/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Auth-Key": THREATFOX_API_KEY,
       },
       body: JSON.stringify({
         query: "get_iocs",
