@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import type { FindIPResponse, GeoIPData } from "@/lib/types"
 
-// FindIP.net API token
-const API_TOKEN = "ec4e888581c54dfcbd0bfbeda422ca5c"
+// FindIP.net API token (from environment)
+const FINDIP_API_TOKEN = process.env.FINDIP_API_TOKEN?.trim()
 
 // Retry configuration
 const MAX_RETRIES = 3
@@ -79,8 +79,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Invalid IP address format" }, { status: 400 })
     }
 
+    // Ensure token is configured
+    if (!FINDIP_API_TOKEN) {
+      return NextResponse.json({ error: "FINDIP_API_TOKEN is not configured" }, { status: 500 })
+    }
+
     // Fetch IP data from findip.net with retry
-    const geoResponse = await fetchWithRetry(`https://api.findip.net/${ip}/?token=${API_TOKEN}`)
+    const geoResponse = await fetchWithRetry(`https://api.findip.net/${ip}/?token=${FINDIP_API_TOKEN}`)
 
     // Check ThreatFox for malicious activity
     const threatResponse = await fetch("/api/threatfox-lookup", {

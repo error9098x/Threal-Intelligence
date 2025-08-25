@@ -2,8 +2,8 @@ import { NextResponse } from "next/server"
 import { fetchThreatFoxData } from "@/lib/api"
 import type { FindIPResponse, GeoIPData } from "@/lib/types"
 
-// FindIP.net API token
-const API_TOKEN = "ec4e888581c54dfcbd0bfbeda422ca5c"
+// FindIP.net API token (from environment)
+const FINDIP_API_TOKEN = process.env.FINDIP_API_TOKEN?.trim()
 
 // Global cache to store processed IPs
 let geoCache: Record<string, GeoIPData> = {}
@@ -43,7 +43,12 @@ async function processIP(ip: string, iocData: any): Promise<GeoIPData | null> {
       return geoCache[ip]
     }
 
-    const response = await fetch(`https://api.findip.net/${ip}/?token=${API_TOKEN}`)
+    if (!FINDIP_API_TOKEN) {
+      console.error("FINDIP_API_TOKEN is not configured")
+      throw new Error("FINDIP_API_TOKEN is not configured")
+    }
+
+    const response = await fetch(`https://api.findip.net/${ip}/?token=${FINDIP_API_TOKEN}`)
 
     if (!response.ok) {
       console.error(`Failed to get geolocation for IP ${ip}: ${response.status} ${response.statusText}`)

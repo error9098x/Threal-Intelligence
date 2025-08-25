@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// Access token for CVE Details API
-const ACCESS_TOKEN =
-  "effa3d4c205d6fe3b457c6b92f5965eeabfc7ce0.eyJzdWIiOjExNzcxLCJpYXQiOjE3NDYzNzg4NzksImV4cCI6MTg2MTkyMDAwMCwia2lkIjoxLCJjIjoidm95RlJONG5UWDRqTTVvcDFyQk5XdDRoc2dYSG5JTGEycFJBbHl6a0ZvVVVVV3BZM21JYUd0SjlYczRIWGo2RFFaY2hUdVwvbUJnPT0ifQ=="
+// Access token for CVE Details API (from environment)
+const CVEDETAILS_ACCESS_TOKEN = process.env.CVEDETAILS_ACCESS_TOKEN?.trim()
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,11 +13,15 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get("startDate") || endDate
 
     // Forward the request to CVE Details API
+    if (!CVEDETAILS_ACCESS_TOKEN) {
+      return NextResponse.json({ error: "CVEDETAILS_ACCESS_TOKEN is not configured" }, { status: 500 })
+    }
+
     const response = await fetch(
       `https://www.cvedetails.com/api/v1/vulnerability/search?publishDateStart=${startDate}&publishDateEnd=${endDate}&orderBy=publishDate&sort=DESC&outputFormat=json&pageNumber=1&resultsPerPage=10`,
       {
         headers: {
-          Authorization: `Bearer ${ACCESS_TOKEN}`,
+          Authorization: `Bearer ${CVEDETAILS_ACCESS_TOKEN}`,
           Accept: "application/json",
         },
       },
